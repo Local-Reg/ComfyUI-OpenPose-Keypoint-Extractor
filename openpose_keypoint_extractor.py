@@ -1,6 +1,10 @@
 import json
 from nodes import MAX_RESOLUTION
 
+import torch
+import numpy as np
+import cv2
+
 class OpenPoseKeyPointBase:
     @classmethod
     def INPUT_TYPES(s):
@@ -38,7 +42,11 @@ class OpenPoseKeyPointExtractor(OpenPoseKeyPointBase):
         max_x = 0
         max_y = 0
         for element in points_we_want:
-            (x,y,z) = self.get_keypoint_from_list(pose_keypoint[0]["people"][person_number][keypoints_type], element)
+            try:
+                (x,y,z) = self.get_keypoint_from_list(pose_keypoint[0]["people"][person_number][keypoints_type], element)
+            except (IndexError, KeyError):
+                print(f"Failed to extract keypoint {element} for person {person_number}")
+                continue
             if x < min_x:
                 min_x = x
             if y < min_y:
@@ -59,8 +67,14 @@ class OpenPoseKeyPointListExtractor(OpenPoseKeyPointBase):
 
         points = []
         for element in points_we_want:
-            (x,y,z) = self.get_keypoint_from_list(pose_keypoint[0]["people"][person_number][keypoints_type], element)
-            points.append((int(x*image_width), int(y*image_height)))
+            try:
+                (x,y,z) = self.get_keypoint_from_list(pose_keypoint[0]["people"][person_number][keypoints_type], element)
+                if x > 0 and y > 0:  # Skip if coordinates are 0 which usually indicates missing keypoint
+                    points.append((int(x*image_width), int(y*image_height)))
+            except (IndexError, KeyError):
+                print(f"Failed to extract keypoint {element} for person {person_number}")
+                continue
+
         print(f"Points extracted: {points}")
         return (points,)  # Return as tuple with single list element
 
@@ -80,10 +94,10 @@ class OpenPoseKeyPointToMask:
     CATEGORY = "utils"
 
     def create_mask(self, points, width, height):
-        import torch
-        import numpy as np
-        import cv2
-        
+        if len(points) <= 2:
+            empty_mask = torch.zeros((1, height, width), dtype=torch.float32, device="cpu")
+            return (empty_mask,)
+
         print(f"Creating mask from points: {points}")
         
         # Create numpy mask first using cv2
